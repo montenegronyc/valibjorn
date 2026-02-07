@@ -1,0 +1,15 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Extracted skill archives (source material, not shipped)
+inbox/
+scratchpad/
+
+# Node
+node_modules/
+*.log
+
+# Environment
+.env
+.env.local
