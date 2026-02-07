@@ -60,44 +60,9 @@ Also write the FOUNDER_CONTEXT to `/tmp/valibjorn-context.md` using the Write to
 
 ### CRITICAL: Context Management
 
-To avoid exceeding context limits, each agent receives only a SHORT prompt (~200 words). Agents read their own reference files and write output to the ValiBjorn database via MCP tools.
+**DO NOT paste reference file content or full FOUNDER_CONTEXT into agent prompts or load all 12 reference files at once.** Each reference file is 16-29 KB. Loading all 12 would consume ~50,000 tokens and blow the context window.
 
-**DO NOT paste reference file content or full FOUNDER_CONTEXT into agent prompts.**
-
-### Agent Dispatch Template
-
-For each agent, use this EXACT prompt structure:
-
-```
-You are the [SKILL NAME] Agent for ValiBjorn, a startup validation engine.
-
-RUN_ID: [insert run_id from Phase 1]
-
-YOUR INSTRUCTIONS:
-1. Use the Read tool to read the founder context from: /tmp/valibjorn-context.md
-2. Use the Read tool to read your methodology from: /Users/lee/dev/ValiBjorn/skills/valibjorn/references/[skill].md
-3. Apply the frameworks from that file to analyze the founder's business idea.
-4. When your analysis is complete, call the valibjorn_write_agent_output MCP tool with:
-   - run_id: [RUN_ID]
-   - agent_name: [skill] (e.g. "idea-validation", "business-model", etc.)
-   - output: your full analysis text
-   - confidence_score: your 0-100 confidence
-   - signals: JSON array of signals for other agents
-   - risks: JSON array of identified risks
-   - frameworks_applied: comma-separated list of frameworks you used
-
-ANALYSIS RULES:
-- Be specific to THIS idea, not generic startup advice
-- Ground every assessment in named frameworks from your reference file
-- Flag contradictions or concerns as signals_for_other_agents
-- Score confidence 0-100 based on how much information you have
-- If you lack information, say so explicitly rather than guessing
-- Include at least 2 risks specific to this business
-
-OUTPUT: Write your analysis to the database using valibjorn_write_agent_output. Return a brief confirmation (1-2 sentences) of what you found — the full output is in the DB.
-```
-
-### The 12 Agents to Dispatch (ALL in parallel)
+### The 12 Agents
 
 | Agent | agent_name | Reference File | Purpose |
 |-------|-----------|---------------|---------|
@@ -114,7 +79,58 @@ OUTPUT: Write your analysis to the database using valibjorn_write_agent_output. 
 | Customer Success | customer-success | references/customer-success.md | Onboarding, churn, satisfaction |
 | Legal & Compliance | legal-compliance | references/legal-compliance.md | Entity, equity, compliance |
 
-**IMPORTANT**: Use `subagent_type: "general-purpose"` for all agents. Launch all 12 in a SINGLE message with parallel Task calls. Do NOT run them sequentially.
+### Dispatch Mode: Claude Code (Task tool available)
+
+If you have access to the Task tool, launch all 12 agents in parallel in a SINGLE message. Each agent gets a SHORT prompt (~200 words) — the agent reads its own files and returns its analysis as text. Then the **orchestrator** writes each result to the DB.
+
+For each agent, use this prompt:
+
+```
+You are the [SKILL NAME] Agent for ValiBjorn, a startup validation engine.
+
+YOUR INSTRUCTIONS:
+1. Use the Read tool to read the founder context from: /tmp/valibjorn-context.md
+2. Use the Read tool to read your methodology from: /Users/lee/dev/ValiBjorn/skills/valibjorn/references/[skill].md
+3. Apply the frameworks from that file to analyze the founder's business idea.
+
+ANALYSIS RULES:
+- Be specific to THIS idea, not generic startup advice
+- Ground every assessment in named frameworks from your reference file
+- Score confidence 0-100 based on how much information you have
+- If you lack information, say so explicitly rather than guessing
+- Include at least 2 risks specific to this business
+
+OUTPUT FORMAT — return ALL of the following:
+- **Assessment**: Your full analysis text
+- **Confidence Score**: 0-100
+- **Signals for Other Agents**: JSON array of cross-cutting signals
+- **Risks**: JSON array of identified risks
+- **Frameworks Applied**: Comma-separated list of frameworks you used
+```
+
+Use `subagent_type: "general-purpose"` for all agents.
+
+After all 12 agents return, the **orchestrator** writes each result to the database:
+- For each agent's returned text, call `valibjorn_write_agent_output` with run_id, agent_name, output, confidence_score, signals, risks, and frameworks_applied
+- Parse these fields from each agent's structured response
+
+### Dispatch Mode: Claude Desktop / Chat (no Task tool)
+
+If you do NOT have the Task tool, process agents sequentially. For each of the 12 agents:
+
+1. Read the reference file: `/Users/lee/dev/ValiBjorn/skills/valibjorn/references/[agent_name].md`
+2. With the reference frameworks in context, analyze the business idea through that agent's lens
+3. Call `valibjorn_write_agent_output` with:
+   - `run_id`: from Phase 1
+   - `agent_name`: the agent's name (e.g. "idea-validation")
+   - `output`: your analysis text
+   - `confidence_score`: 0-100
+   - `signals`: JSON array of signals for other agents
+   - `risks`: JSON array of risks
+   - `frameworks_applied`: comma-separated frameworks used
+4. Move to the next agent. **Do NOT keep the previous reference file in context** — each agent analysis is independent.
+
+Process them in priority order: idea-validation, business-model, go-to-market, product, fundraising, legal-compliance, finance-accounting, sales, marketing-brand, growth-analytics, operations, customer-success.
 
 ---
 
@@ -122,12 +138,9 @@ OUTPUT: Write your analysis to the database using valibjorn_write_agent_output. 
 
 ### Reading Agent Results from Database
 
-Do NOT rely on the Task tool return values for agent analysis. Instead:
+Call `valibjorn_get_run_outputs` with `run_id` and `full: false` to get a summary view (confidence scores, signals, risks, frameworks) for all 12 agents. For any agent where you need the full analysis (e.g. to resolve contradictions), call `valibjorn_get_agent_output` with the specific agent_name.
 
-1. Call `valibjorn_get_run_outputs` with `run_id` and `full: false` to get a summary view (confidence scores, signals, risks, frameworks) for all agents
-2. For any agent where you need the full analysis (e.g. to resolve contradictions), call `valibjorn_get_agent_output` with the specific agent_name
-
-This keeps the orchestrator's context lean — you pull only what you need.
+This keeps your context lean — you pull only what you need.
 
 ### Cross-Skill Analysis
 
