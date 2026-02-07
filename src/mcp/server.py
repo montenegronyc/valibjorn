@@ -73,7 +73,7 @@ TOOLS = [
                 },
                 "agent_name": {
                     "type": "string",
-                    "description": "Agent name: idea-validation, business-model, fundraising, go-to-market, product, sales, marketing-brand, growth-analytics, operations, finance-accounting, customer-success, legal-compliance",
+                    "description": "Agent name: idea-validation, business-model, fundraising, go-to-market, product, sales, marketing-brand, growth-analytics, operations, finance-accounting, customer-success, legal-compliance, name-trademark",
                 },
                 "output": {
                     "type": "string",
@@ -236,6 +236,88 @@ TOOLS = [
         name="valibjorn_stats",
         description="Database statistics: concept count, run count, verdict distribution, agent output counts.",
         inputSchema={"type": "object", "properties": {}},
+    ),
+    Tool(
+        name="valibjorn_name_search",
+        description="Record name conflict search results for a concept. Stores proposed name, conflicts found, domain status, and verdict (CLEAR/CAUTION/RENAME_REQUIRED).",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "concept_id": {
+                    "type": "integer",
+                    "description": "The concept this name search is for",
+                },
+                "proposed_name": {
+                    "type": "string",
+                    "description": "The business name being evaluated",
+                },
+                "verdict": {
+                    "type": "string",
+                    "description": "CLEAR, CAUTION, or RENAME_REQUIRED",
+                },
+                "conflicts": {
+                    "type": "string",
+                    "description": "JSON array or markdown table of conflicts found (entity, industry, URL, severity)",
+                },
+                "domain_status": {
+                    "type": "string",
+                    "description": "Domain availability summary (.com, .ai, .io, .co status)",
+                },
+                "notes": {
+                    "type": "string",
+                    "description": "Additional assessment notes",
+                },
+            },
+            "required": ["proposed_name", "verdict", "conflicts"],
+        },
+    ),
+    Tool(
+        name="valibjorn_name_brainstorm",
+        description="Record brainstormed alternative names for a concept. Stores scored candidates with rationale, domain availability, and top recommendations.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "concept_id": {
+                    "type": "integer",
+                    "description": "The concept this brainstorm is for",
+                },
+                "original_name": {
+                    "type": "string",
+                    "description": "The original name that needs replacing",
+                },
+                "positioning_context": {
+                    "type": "string",
+                    "description": "What the product does, who it's for, desired brand tone",
+                },
+                "candidates": {
+                    "type": "string",
+                    "description": "JSON array of name candidates, each with: name, type (Descriptive/Metaphor/Coined/Story/Acronym), domain_available (bool), rationale, score (1-25)",
+                },
+                "top_recommendations": {
+                    "type": "string",
+                    "description": "Top 3 recommended names with rationale",
+                },
+                "conflict_check": {
+                    "type": "string",
+                    "description": "Quick conflict check results for top 3 candidates",
+                },
+            },
+            "required": ["original_name", "candidates", "top_recommendations"],
+        },
+    ),
+    Tool(
+        name="valibjorn_get_name_searches",
+        description="Get all name searches for a concept. Returns search history with verdicts and conflicts.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "concept_id": {
+                    "type": "integer",
+                    "description": "The concept ID to get name searches for",
+                },
+            },
+            "required": ["concept_id"],
+        },
     ),
 ]
 
@@ -544,6 +626,101 @@ def _handle_compare_runs(args: dict) -> str:
     return "\n".join(lines)
 
 
+def _handle_name_search(args: dict) -> str:
+    search_id = execute_insert(
+        """INSERT INTO name_searches
+           (concept_id, proposed_name, verdict, conflicts, domain_status, notes)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (
+            args.get("concept_id"),
+            args["proposed_name"],
+            args["verdict"],
+            args["conflicts"],
+            args.get("domain_status"),
+            args.get("notes"),
+        ),
+    )
+    verdict_emoji = {"CLEAR": "✅", "CAUTION": "⚠️", "RENAME_REQUIRED": "🚫"}.get(
+        args["verdict"], "❓"
+    )
+    return (
+        f"{verdict_emoji} Name search #{search_id} saved: "
+        f"'{args['proposed_name']}' → {args['verdict']}"
+    )
+
+
+def _handle_name_brainstorm(args: dict) -> str:
+    # Store brainstorm as a name_search record with alternatives in the notes field
+    search_id = execute_insert(
+        """INSERT INTO name_searches
+           (concept_id, proposed_name, verdict, conflicts, domain_status, alternatives, notes)
+           VALUES (?, ?, 'BRAINSTORM', ?, ?, ?, ?)""",
+        (
+            args.get("concept_id"),
+            args["original_name"],
+            "Brainstorm for replacement names",
+            None,
+            args["candidates"],
+            f"TOP RECOMMENDATIONS:\n{args['top_recommendations']}\n\nCONFLICT CHECK:\n{args.get('conflict_check', 'Not performed')}",
+        ),
+    )
+
+    # Parse candidates to count them
+    try:
+        candidates = json.loads(args["candidates"])
+        count = len(candidates)
+    except (json.JSONDecodeError, TypeError):
+        count = "?"
+
+    return (
+        f"💡 Brainstorm #{search_id} saved: {count} candidates for replacing "
+        f"'{args['original_name']}'\n\n{args['top_recommendations']}"
+    )
+
+
+def _handle_get_name_searches(args: dict) -> str:
+    concept_id = args["concept_id"]
+    concept = execute_one("SELECT name FROM concepts WHERE id = ?", (concept_id,))
+    if not concept:
+        return f"Error: concept #{concept_id} not found"
+
+    searches = execute_query(
+        "SELECT * FROM name_searches WHERE concept_id = ? ORDER BY created_at DESC",
+        (concept_id,),
+    )
+    if not searches:
+        return f"No name searches for concept #{concept_id} ({concept['name']})"
+
+    lines = [
+        f"## Name Searches for {concept['name']} (Concept #{concept_id})",
+        f"Total searches: {len(searches)}",
+        "",
+    ]
+
+    for s in searches:
+        verdict_emoji = {
+            "CLEAR": "✅",
+            "CAUTION": "⚠️",
+            "RENAME_REQUIRED": "🚫",
+            "BRAINSTORM": "💡",
+        }.get(s["verdict"], "❓")
+
+        lines.append(f"### {verdict_emoji} #{s['id']}: \"{s['proposed_name']}\" → {s['verdict']}")
+        lines.append(f"Date: {s['created_at']}")
+
+        if s["conflicts"] and s["verdict"] != "BRAINSTORM":
+            lines.append(f"\n**Conflicts:**\n{s['conflicts']}")
+        if s["domain_status"]:
+            lines.append(f"\n**Domains:**\n{s['domain_status']}")
+        if s["alternatives"]:
+            lines.append(f"\n**Alternatives:**\n{s['alternatives']}")
+        if s["notes"]:
+            lines.append(f"\n**Notes:**\n{s['notes']}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
 def _handle_stats(args: dict) -> str:
     concepts = execute_one("SELECT COUNT(*) as cnt FROM concepts")
     runs = execute_one("SELECT COUNT(*) as cnt FROM validation_runs")
@@ -595,6 +772,9 @@ _TOOL_HANDLERS = {
     "valibjorn_search": _handle_search,
     "valibjorn_compare_runs": _handle_compare_runs,
     "valibjorn_stats": _handle_stats,
+    "valibjorn_name_search": _handle_name_search,
+    "valibjorn_name_brainstorm": _handle_name_brainstorm,
+    "valibjorn_get_name_searches": _handle_get_name_searches,
 }
 
 

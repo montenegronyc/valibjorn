@@ -70,10 +70,23 @@ def _init_schema(conn: sqlite3.Connection):
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
 
+        CREATE TABLE IF NOT EXISTS name_searches (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            concept_id INTEGER REFERENCES concepts(id),
+            proposed_name TEXT NOT NULL,
+            verdict TEXT,
+            conflicts TEXT,
+            domain_status TEXT,
+            alternatives TEXT,
+            notes TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
         CREATE INDEX IF NOT EXISTS idx_runs_concept ON validation_runs(concept_id);
         CREATE INDEX IF NOT EXISTS idx_outputs_run ON agent_outputs(run_id);
         CREATE INDEX IF NOT EXISTS idx_outputs_agent ON agent_outputs(agent_name);
         CREATE INDEX IF NOT EXISTS idx_concepts_name ON concepts(name);
+        CREATE INDEX IF NOT EXISTS idx_name_searches_concept ON name_searches(concept_id);
     """
     )
 
