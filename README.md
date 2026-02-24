@@ -2,7 +2,7 @@
 
 Hyperthreaded multi-agent business validation engine for Claude Code.
 
-Based on the [Linus Beliunas one-person unicorn concept](https://www.linkedin.com/pulse/built-complete-startup-operating-system-using-ai-12-linus-beliunas-wofqe/) — 12 interconnected startup skills covering the entire founder journey — but reimagined and expanded as a parallel orchestration system that runs **14 agents simultaneously** and weaves them into a single, integrated Founder Operating Brief.
+Based on the [Linus Beliunas one-person unicorn concept](https://www.linkedin.com/pulse/built-complete-startup-operating-system-using-ai-12-linus-beliunas-wofqe/) — but reimagined and expanded as a parallel orchestration system that runs **14 agents simultaneously** and weaves them into a single, integrated Founder Operating Brief.
 
 ## What It Does
 
