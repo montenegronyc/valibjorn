@@ -2,15 +2,15 @@
 
 Hyperthreaded multi-agent business validation engine for Claude Code.
 
-Based on the [Linus Beliunas one-person unicorn concept](https://www.linkedin.com/pulse/built-complete-startup-operating-system-using-ai-12-linus-beliunas-wofqe/) — 12 interconnected startup skills covering the entire founder journey — but reimagined as a parallel orchestration system that runs all 12 analyses simultaneously and weaves them into a single, integrated Founder Operating Brief.
+Based on the [Linus Beliunas one-person unicorn concept](https://www.linkedin.com/pulse/built-complete-startup-operating-system-using-ai-12-linus-beliunas-wofqe/) — 12 interconnected startup skills covering the entire founder journey — but reimagined and expanded as a parallel orchestration system that runs **14 agents simultaneously** and weaves them into a single, integrated Founder Operating Brief.
 
 ## What It Does
 
-You describe your startup idea. ValiBjorn launches 12 specialized AI agents in parallel:
+You describe your startup idea. ValiBjorn launches 14 specialized AI agents in parallel:
 
 | Agent | Analyzes |
 |-------|----------|
-| Idea Validation | GO/PIVOT/KILL using YC, Mom Test, Bilyeu frameworks |
+| Idea Validation | GO/PIVOT/KILL using YC, Mom Test, Bilyeu frameworks + **live web research** |
 | Business Model | Model selection, pricing, unit economics, positioning |
 | Fundraising | Pitch deck, VC psychology, projections, readiness |
 | Go-to-Market | Launch strategy, channels, first 100 customers |
@@ -22,6 +22,8 @@ You describe your startup idea. ValiBjorn launches 12 specialized AI agents in p
 | Finance & Accounting | Burn rate, runway, cash flow, financial model |
 | Customer Success | Onboarding, churn prevention, health scoring |
 | Legal & Compliance | Entity, equity, vesting, SAFEs, compliance |
+| Competitive Intelligence | Landscape mapping, moat analysis, incumbent threats, market timing |
+| Name & Trademark | Name generation, conflict checking, domain validation |
 
 The results are woven together — contradictions surfaced, risks aggregated, signals cross-referenced — into a unified **Founder Operating Brief** with a GO/PIVOT/KILL verdict.
 
@@ -29,20 +31,38 @@ The results are woven together — contradictions surfaced, risks aggregated, si
 
 | Beliunas Original | ValiBjorn |
 |-------------------|-----------|
-| Sequential skill execution | 12 parallel agent threads |
+| Sequential skill execution | 14 parallel agent threads |
 | Each skill standalone | Signals propagate between agents |
 | 12 separate outputs | One unified Founder Operating Brief |
-| Manual skill selection | Auto-orchestration of all 12 |
+| Manual skill selection | Auto-orchestration of all 14 |
 | Single pass, one skill at a time | Simultaneous analysis with cross-weaving |
+
+## Requirements
+
+- [Claude Code](https://claude.ai/code) with access to the `Task` tool
+- Python 3.10+ (for the MCP server)
+- `pip install mcp anthropic` (MCP server dependencies)
 
 ## Installation
 
 1. Clone this repo
-2. Copy the `skills/valibjorn/` folder into your Claude Code skills directory:
+2. Copy the skills folder into your Claude Code skills directory:
    ```bash
    cp -r skills/valibjorn ~/.claude/skills/valibjorn
    ```
-3. Use it in Claude Code by saying: **"validate my idea"** or **"valibjorn"**
+3. Start the MCP server and add it to your Claude Code config (`~/.claude/settings.json`):
+   ```json
+   {
+     "mcpServers": {
+       "valibjorn": {
+         "command": "python3",
+         "args": ["-m", "src.mcp.server"],
+         "cwd": "/path/to/ValiBjorn"
+       }
+     }
+   }
+   ```
+4. Use it in Claude Code by saying: **"validate my idea"** or **"valibjorn"**
 
 ## Usage
 
@@ -51,30 +71,42 @@ The results are woven together — contradictions surfaced, risks aggregated, si
 ```
 
 ValiBjorn will:
-1. **Intake** — Ask 7 diagnostic questions about your idea, market, and founder context
-2. **Dispatch** — Launch 12 parallel skill-agents via Claude Code's Task tool
+1. **Intake** — Ask diagnostic questions about your idea, market, and founder context
+2. **Dispatch** — Launch 14 parallel skill-agents via Claude Code's Task tool
 3. **Weave** — Cross-reference findings, resolve contradictions, aggregate risks
-4. **Synthesize** — Produce a unified Founder Operating Brief
-5. **Deliver** — Present the brief with GO/PIVOT/KILL verdict and 90-day action plan
+4. **Name check** — Present 20 name candidates, run viability checks on your selections
+5. **Synthesize** — Produce a unified Founder Operating Brief
+6. **Deliver** — Present the brief with GO/PIVOT/KILL verdict and 90-day action plan
 
 ## Project Structure
 
 ```
 skills/valibjorn/
-├── SKILL.md                      # Orchestrator (intake, dispatch, weave, synthesize)
+├── SKILL.md                          # Orchestrator (intake, dispatch, weave, synthesize)
 └── references/
-    ├── idea-validation.md        # Kevin Hale/YC, Mom Test, GO/PIVOT/KILL
-    ├── business-model.md         # 55 patterns, pricing, unit economics, Dunford
-    ├── fundraising.md            # Pitch deck, VC research, projections, outreach
-    ├── go-to-market.md           # Rachitsky tactics, Racecar, first 100 customers
-    ├── product.md                # PRD (Yien/Square), RICE, user stories, roadmap
-    ├── sales.md                  # MEDDIC/BANT/Challenger, outreach, demos, pipeline
-    ├── marketing-brand.md        # Brand voice, content, SEO, PR, community
-    ├── growth-analytics.md       # AARRR, North Star, A/B testing, cohorts
-    ├── operations.md             # Hiring, OKRs, board management, updates
-    ├── finance-accounting.md     # Burn rate, runway, cash flow, reporting
-    ├── customer-success.md       # Onboarding, churn, NPS, health scoring
-    └── legal-compliance.md       # Entity, vesting, ESOP, SAFEs, cap table
+    ├── idea-validation.md            # Kevin Hale/YC, Mom Test, GO/PIVOT/KILL + live research
+    ├── business-model.md             # 55 patterns, pricing, unit economics, Dunford
+    ├── fundraising.md                # Pitch deck, VC research, projections, outreach
+    ├── go-to-market.md               # Rachitsky tactics, Racecar, first 100 customers
+    ├── product.md                    # PRD (Yien/Square), RICE, user stories, roadmap
+    ├── sales.md                      # MEDDIC/BANT/Challenger, outreach, demos, pipeline
+    ├── marketing-brand.md            # Brand voice, content, SEO, PR, community
+    ├── growth-analytics.md           # AARRR, North Star, A/B testing, cohorts
+    ├── operations.md                 # Hiring, OKRs, board management, updates
+    ├── finance-accounting.md         # Burn rate, runway, cash flow, reporting
+    ├── customer-success.md           # Onboarding, churn, NPS, health scoring
+    ├── legal-compliance.md           # Entity, vesting, ESOP, SAFEs, cap table
+    ├── competitive-intelligence.md   # Porter's 5 Forces, 7 Powers, moat analysis
+    └── name-trademark.md             # Two-phase: 20 candidates → viability checks
+
+src/mcp/
+└── server.py                         # SQLite MCP server (concepts, runs, agent outputs)
+
+data/
+└── valibjorn.db                      # SQLite database (auto-created on first run)
+
+briefs/
+└── *.md                              # Generated Founder Operating Briefs
 ```
 
 ## Frameworks Included
@@ -90,6 +122,9 @@ Distilled from 50+ practitioners and methodologies:
 - **Intercom** (RICE scoring, PRD philosophy)
 - **Google/Liz Wessel** (OKR framework)
 - **MEDDIC, BANT, Challenger, SPIN** (sales methodologies)
+- **Hamilton Helmer** (7 Powers moat framework)
+- **Michael Porter** (Five Forces, competitive strategy)
+- **Clayton Christensen** (disruption theory, innovator's dilemma)
 - And many more embedded in each agent's prompt
 
 ## Output: The Founder Operating Brief
@@ -97,7 +132,7 @@ Distilled from 50+ practitioners and methodologies:
 A single integrated document containing:
 
 1. **Verdict** — GO / PIVOT / KILL with confidence score
-2. **Idea Scorecard** — 12 dimensions scored 1-10
+2. **Idea Scorecard** — 14 dimensions scored 1-10
 3. **Business in One Page** — Problem, solution, customer, insight, model, positioning
 4. **Critical Risks** — Top 5 with severity, mitigation, and owner
 5. **Cross-Skill Insights** — Reinforcing signals, contradictions, information gaps
