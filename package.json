@@ -1,0 +1,36 @@
+{
+  "name": "valibjorn",
+  "version": "0.5.2",
+  "description": "Hyperthreaded multi-agent startup validation engine for Claude Code",
+  "keywords": [
+    "claude",
+    "claude-code",
+    "ai",
+    "startup",
+    "validation",
+    "agents",
+    "mcp"
+  ],
+  "homepage": "https://github.com/montenegronyc/valibjorn",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/montenegronyc/valibjorn.git"
+  },
+  "license": "MIT",
+  "bin": {
+    "valibjorn": "./bin/valibjorn.js"
+  },
+  "files": [
+    "bin/",
+    "skills/",
+    "src/",
+    "requirements.txt",
+    "install.sh"
+  ],
+  "engines": {
+    "node": ">=16"
+  },
+  "scripts": {
+    "install-local": "bash install.sh"
+  }
+}
