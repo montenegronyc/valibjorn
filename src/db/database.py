@@ -63,6 +63,7 @@ def _init_schema(conn: sqlite3.Connection):
             run_id INTEGER NOT NULL REFERENCES validation_runs(id),
             agent_name TEXT NOT NULL,
             output TEXT NOT NULL,
+            summary TEXT,
             confidence_score REAL,
             signals TEXT,
             risks TEXT,
@@ -89,6 +90,11 @@ def _init_schema(conn: sqlite3.Connection):
         CREATE INDEX IF NOT EXISTS idx_name_searches_concept ON name_searches(concept_id);
     """
     )
+
+    # Migration: add summary column to existing agent_outputs tables
+    existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(agent_outputs)").fetchall()}
+    if "summary" not in existing_cols:
+        conn.execute("ALTER TABLE agent_outputs ADD COLUMN summary TEXT")
 
 
 @contextmanager

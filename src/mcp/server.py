@@ -79,6 +79,10 @@ TOOLS = [
                     "type": "string",
                     "description": "The agent's full analysis text",
                 },
+                "summary": {
+                    "type": "string",
+                    "description": "2-3 sentence distillation of the key finding (max ~200 words). Used by the synthesis agent for cross-referencing.",
+                },
                 "confidence_score": {
                     "type": "number",
                     "description": "Agent's confidence score 0-100",
@@ -96,7 +100,7 @@ TOOLS = [
                     "description": "Comma-separated list of frameworks used",
                 },
             },
-            "required": ["run_id", "agent_name", "output"],
+            "required": ["run_id", "agent_name", "output", "summary"],
         },
     ),
     Tool(
@@ -133,6 +137,20 @@ TOOLS = [
                 },
             },
             "required": ["run_id", "agent_name"],
+        },
+    ),
+    Tool(
+        name="valibjorn_get_weave_data",
+        description="Get a compact, synthesis-optimized payload for a validation run. Returns all agent summaries, signals, risks, and confidence scores in one call (~2-4K tokens). Use this in the synthesis phase instead of pulling full agent outputs.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "run_id": {
+                    "type": "integer",
+                    "description": "The validation run ID",
+                },
+            },
+            "required": ["run_id"],
         },
     ),
     Tool(
@@ -358,12 +376,13 @@ def _handle_write_agent_output(args: dict) -> str:
 
     output_id = execute_insert(
         """INSERT INTO agent_outputs
-           (run_id, agent_name, output, confidence_score, signals, risks, frameworks_applied)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+           (run_id, agent_name, output, summary, confidence_score, signals, risks, frameworks_applied)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             args["run_id"],
             args["agent_name"],
             args["output"],
+            args.get("summary"),
             args.get("confidence_score"),
             args.get("signals"),
             args.get("risks"),
@@ -396,13 +415,15 @@ def _handle_get_run_outputs(args: dict) -> str:
     lines = [
         f"## Run #{run_id} — {run['concept_name']}",
         f"Status: {run['status']} | Verdict: {run['verdict'] or 'pending'} | Confidence: {run['confidence_score'] or 'pending'}",
-        f"Agents completed: {len(outputs)}/12",
+        f"Agents completed: {len(outputs)}/14",
         "",
     ]
 
     for o in outputs:
         lines.append(f"### {o['agent_name']}")
         lines.append(f"Confidence: {o['confidence_score'] or 'N/A'}")
+        if o.get("summary"):
+            lines.append(f"Summary: {o['summary']}")
         if o["signals"]:
             lines.append(f"Signals: {o['signals']}")
         if o["risks"]:
@@ -435,6 +456,77 @@ def _handle_get_agent_output(args: dict) -> str:
         output["output"],
     ]
     return "\n".join(lines)
+
+
+def _handle_get_weave_data(args: dict) -> str:
+    run_id = args["run_id"]
+
+    run = execute_one(
+        """SELECT r.id, r.status, r.verdict, r.confidence_score,
+                  c.name as concept_name, SUBSTR(c.founder_context, 1, 500) as founder_context_excerpt
+           FROM validation_runs r JOIN concepts c ON r.concept_id = c.id
+           WHERE r.id = ?""",
+        (run_id,),
+    )
+    if not run:
+        return f"Error: run #{run_id} not found"
+
+    outputs = execute_query(
+        "SELECT agent_name, confidence_score, summary, signals, risks, frameworks_applied FROM agent_outputs WHERE run_id = ? ORDER BY agent_name",
+        (run_id,),
+    )
+
+    all_signals = []
+    all_risks = []
+    agents = []
+
+    for o in outputs:
+        # Parse signals and risks from JSON strings
+        signals = []
+        risks = []
+        try:
+            if o["signals"]:
+                signals = json.loads(o["signals"])
+        except (json.JSONDecodeError, TypeError):
+            signals = [o["signals"]] if o["signals"] else []
+        try:
+            if o["risks"]:
+                risks = json.loads(o["risks"])
+        except (json.JSONDecodeError, TypeError):
+            risks = [o["risks"]] if o["risks"] else []
+
+        all_signals.extend(signals)
+        all_risks.extend(risks)
+
+        agents.append({
+            "agent_name": o["agent_name"],
+            "confidence_score": o["confidence_score"],
+            "summary": o["summary"] or "(no summary)",
+            "signals": signals,
+            "risks": risks,
+            "frameworks_applied": o["frameworks_applied"] or "",
+        })
+
+    # Deduplicate risks by string representation
+    seen_risks = set()
+    deduped_risks = []
+    for r in all_risks:
+        key = json.dumps(r, sort_keys=True) if isinstance(r, dict) else str(r)
+        if key not in seen_risks:
+            seen_risks.add(key)
+            deduped_risks.append(r)
+
+    result = {
+        "run_id": run_id,
+        "concept_name": run["concept_name"],
+        "founder_context_excerpt": run["founder_context_excerpt"],
+        "agents_completed": len(outputs),
+        "agents": agents,
+        "all_signals": all_signals,
+        "all_risks": deduped_risks,
+    }
+
+    return json.dumps(result, indent=2)
 
 
 def _handle_complete_run(args: dict) -> str:
@@ -766,6 +858,7 @@ _TOOL_HANDLERS = {
     "valibjorn_write_agent_output": _handle_write_agent_output,
     "valibjorn_get_run_outputs": _handle_get_run_outputs,
     "valibjorn_get_agent_output": _handle_get_agent_output,
+    "valibjorn_get_weave_data": _handle_get_weave_data,
     "valibjorn_complete_run": _handle_complete_run,
     "valibjorn_list_concepts": _handle_list_concepts,
     "valibjorn_get_concept": _handle_get_concept,
