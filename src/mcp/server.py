@@ -1,5 +1,10 @@
-"""ValiBjorn MCP Server — local SQLite persistence for validation runs."""
+"""ValiBjorn MCP Server — local SQLite persistence for validation runs.
 
+Supports SSE transport (default) for concurrent agent writes,
+and stdio transport (--stdio) for legacy/fallback use.
+"""
+
+import argparse
 import asyncio
 import json
 import sys
@@ -10,7 +15,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
+from mcp.server.sse import SseServerTransport
 from mcp.types import Tool, TextContent
+
+from starlette.applications import Starlette
+from starlette.routing import Route, Mount
+from starlette.responses import JSONResponse
 
 from src.db.database import execute_query, execute_one, execute_insert
 
@@ -888,12 +898,72 @@ async def call_tool(name: str, arguments: dict):
     return [TextContent(type="text", text=result)]
 
 
-async def main():
+# ---------------------------------------------------------------------------
+# Transport: SSE (default) and stdio (--stdio fallback)
+# ---------------------------------------------------------------------------
+
+
+async def run_stdio():
     async with stdio_server() as (read_stream, write_stream):
         await server.run(
             read_stream, write_stream, server.create_initialization_options()
         )
 
 
+async def run_sse(host: str, port: int):
+    sse = SseServerTransport("/messages/")
+
+    async def handle_sse(request):
+        async with sse.connect_sse(
+            request.scope, request.receive, request._send
+        ) as streams:
+            await server.run(
+                streams[0], streams[1], server.create_initialization_options()
+            )
+
+    async def handle_health(request):
+        return JSONResponse({"status": "ok", "server": "valibjorn"})
+
+    app = Starlette(
+        routes=[
+            Route("/health", handle_health),
+            Route("/sse", endpoint=handle_sse),
+            Mount("/messages/", app=sse.handle_post_message),
+        ],
+    )
+
+    import uvicorn
+
+    config = uvicorn.Config(app, host=host, port=port, log_level="info")
+    uv_server = uvicorn.Server(config)
+    await uv_server.serve()
+
+
+def main():
+    parser = argparse.ArgumentParser(description="ValiBjorn MCP Server")
+    parser.add_argument(
+        "--stdio",
+        action="store_true",
+        help="Use stdio transport (legacy). Default is SSE.",
+    )
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="SSE host (default: 127.0.0.1)",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8767,
+        help="SSE port (default: 8767)",
+    )
+    args = parser.parse_args()
+
+    if args.stdio:
+        asyncio.run(run_stdio())
+    else:
+        asyncio.run(run_sse(args.host, args.port))
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

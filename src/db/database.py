@@ -1,10 +1,10 @@
-"""ValiBjorn SQLite database layer."""
+"""ValiBjorn SQLite database layer — concurrent-safe with per-request connections."""
 
 import sqlite3
 import os
 import json
+import threading
 from contextlib import contextmanager
-from datetime import datetime
 from pathlib import Path
 
 DB_PATH = os.getenv(
@@ -12,25 +12,30 @@ DB_PATH = os.getenv(
     str(Path(__file__).parent.parent.parent / "data" / "valibjorn.db"),
 )
 
-_connection = None
+_schema_initialized = False
+_schema_lock = threading.Lock()
 
 
-def get_connection() -> sqlite3.Connection:
-    global _connection
-    if _connection is not None:
-        try:
-            _connection.execute("SELECT 1")
-            return _connection
-        except sqlite3.Error:
-            _connection = None
-
+def _get_fresh_connection() -> sqlite3.Connection:
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    _connection = sqlite3.connect(DB_PATH)
-    _connection.row_factory = sqlite3.Row
-    _connection.execute("PRAGMA journal_mode=WAL")
-    _connection.execute("PRAGMA foreign_keys=ON")
-    _init_schema(_connection)
-    return _connection
+    conn = sqlite3.connect(DB_PATH, timeout=30)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("PRAGMA busy_timeout=30000")
+    _ensure_schema(conn)
+    return conn
+
+
+def _ensure_schema(conn: sqlite3.Connection):
+    global _schema_initialized
+    if _schema_initialized:
+        return
+    with _schema_lock:
+        if _schema_initialized:
+            return
+        _init_schema(conn)
+        _schema_initialized = True
 
 
 def _init_schema(conn: sqlite3.Connection):
@@ -99,7 +104,7 @@ def _init_schema(conn: sqlite3.Connection):
 
 @contextmanager
 def get_cursor():
-    conn = get_connection()
+    conn = _get_fresh_connection()
     cursor = conn.cursor()
     try:
         yield cursor
@@ -109,6 +114,7 @@ def get_cursor():
         raise
     finally:
         cursor.close()
+        conn.close()
 
 
 def execute_query(sql: str, params: tuple = ()) -> list[dict]:
