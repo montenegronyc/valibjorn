@@ -7,11 +7,21 @@ and stdio transport (--stdio) for legacy/fallback use.
 import argparse
 import asyncio
 import json
+import logging
+import socket
 import sys
 import os
 
 # Ensure project root is on path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+
+# Log to stderr so we don't corrupt stdio JSON-RPC framing
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    stream=sys.stderr,
+)
+logger = logging.getLogger("valibjorn")
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
@@ -890,10 +900,14 @@ async def list_tools():
 async def call_tool(name: str, arguments: dict):
     handler = _TOOL_HANDLERS.get(name)
     if not handler:
+        logger.warning("Unknown tool called: %s", name)
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
     try:
+        logger.info("Calling %s", name)
         result = handler(arguments)
+        logger.info("Completed %s (%d chars)", name, len(result))
     except Exception as e:
+        logger.exception("Error in %s", name)
         result = f"Error: {e}"
     return [TextContent(type="text", text=result)]
 
@@ -904,10 +918,43 @@ async def call_tool(name: str, arguments: dict):
 
 
 async def run_stdio():
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream, write_stream, server.create_initialization_options()
-        )
+    logger.info("Starting ValiBjorn MCP server (stdio)")
+    try:
+        async with stdio_server() as (read_stream, write_stream):
+            await server.run(
+                read_stream, write_stream, server.create_initialization_options()
+            )
+    except Exception:
+        logger.exception("Server crashed")
+        raise
+    finally:
+        logger.info("Server shutting down")
+
+
+def _port_in_use(host: str, port: int) -> bool:
+    """Check if a port is already bound."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind((host, port))
+            return False
+        except OSError:
+            return True
+
+
+def _find_free_port(host: str, default: int, max_attempts: int = 20) -> int:
+    """Return default port if free, otherwise scan upward."""
+    for offset in range(max_attempts):
+        candidate = default + offset
+        if not _port_in_use(host, candidate):
+            if offset > 0:
+                logger.info("Port %d in use, using %d instead", default, candidate)
+            return candidate
+    # Last resort: let the OS pick
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind((host, 0))
+        port = s.getsockname()[1]
+        logger.info("No free port in range %d-%d, OS assigned %d", default, default + max_attempts - 1, port)
+        return port
 
 
 async def run_sse(host: str, port: int):
@@ -962,7 +1009,9 @@ def main():
     if args.stdio:
         asyncio.run(run_stdio())
     else:
-        asyncio.run(run_sse(args.host, args.port))
+        port = _find_free_port(args.host, args.port)
+        logger.info("Starting ValiBjorn MCP server (SSE) on %s:%d", args.host, port)
+        asyncio.run(run_sse(args.host, port))
 
 
 if __name__ == "__main__":
